@@ -1,2 +1,5 @@
 # minibug
-Concise and documented COq formalization of a symbolic bug finder for IMP
+
+Concise and documented Coq formalization of a symbolic bug finder for IMP
+
+
