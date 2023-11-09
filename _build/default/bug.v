@@ -618,80 +618,6 @@ Arguments Timeout {_}.
 Arguments Found {_}.
 Arguments NotFound {_}.
 
-Fixpoint search_opt {A B} (fuel : nat) (P : A -> option B) (s : stream A) :=
-  match fuel, s with
-  | _, snil => NotFound
-  | 0, scons x s => Timeout
-  | S fuel, scons x s =>
-    match P x with
-    | Some x => Found x
-    | None => search_opt fuel P s
-    end
-  end.
-
-(** [search_opt] finds only [y] such that [P x = Some y] for some [x] in the stream *)
-Theorem search_opt_found:
-forall A B fuel (P : A -> option B) s (y : B),
-  search_opt fuel P s = Found y ->
-  exists x, mem x s /\ P x = Some y.
-Proof.
-  intros * H.
-  induction fuel in s, H |-*; simpl in *.
-  - now destruct s.
-  - destruct s as [|x s]; try easy.
-    destruct (P x) eqn:Heq.
-  + injection H as <-.
-    exists x. split; auto.
-    now exists 0.
-  + specialize (IHfuel _ H) as (z & [[i Hi] HP]).
-    exists z. split; auto.
-    now exists (S i).
-Qed.
-
-(** [search_opt] finds only [y] such that [P x = Some y] for some [x] in the stream *)
-Theorem search_opt_not_found:
-forall A B fuel (P : A -> option B) s,
-  search_opt fuel P s = NotFound ->
-  forall x, mem x s -> P x = None.
-Proof.
-  intros * H.
-  induction fuel in s, H |-*; simpl in *.
-  - destruct s; try easy.
-    intros x [i Hi]; simpl in *.
-    now induction i.
-  - destruct s as [|x s].
-  + intros x [i Hi]; simpl in *.
-    now induction i.
-  + destruct (P x) eqn:HP; try easy.
-    intros y [[|i] Hi]; simpl in *.
-    injection Hi as <-; auto.
-    apply (IHfuel s H y).
-    now exists i.
-Qed.
-
-Theorem search_opt_fuel:
-  forall A B (P : A -> option B) s x y,
-    mem x s ->
-    P x = Some y ->
-    exists fuel x, search_opt fuel P s = Found x.
-Proof.
-  intros * [i Hi] HP.
-  exists (S i).
-  induction i in s, Hi |-*; simpl in *.
-  - destruct s; try easy.
-    injection Hi as ->.
-    exists y. now rewrite HP.
-  - destruct s as [|x1 s]; try easy.
-    specialize (IHi _ Hi) as [x2 Hx2].
-    destruct s as [|x3 s]; try easy.
-    destruct (P x1) as [y'|] eqn:H1.
-  + now exists y'.
-  + destruct (P x3) as [y'|] eqn:H3.
-    injection Hx2 as <-.
-    now exists y'.
-    now exists x2.
-Qed.
-
 (** Bounded search in a stream *)
 Fixpoint search {A} (fuel : nat) (P : A -> bool) (s : stream A) :=
   match fuel, s with
@@ -735,27 +661,6 @@ Proof.
     injection Hi as <-. now rewrite H2 in HP.
     apply (IHfuel s H y). split; auto.
     now exists i.
-Qed.
-
-Theorem search_fuel:
-  forall A P (x : A) s, mem x s ->
-    P x = true ->
-    exists fuel x, search fuel P s = Found x.
-Proof.
-  intros * [i Hi] HP.
-  exists (S i).
-  induction i in s, Hi |-*; simpl in *.
-  - destruct s; try easy.
-    injection Hi as ->.
-    exists x. now rewrite HP.
-  - destruct s as [|x1 s]; try easy.
-    specialize (IHi _ Hi) as [x2 Hx2].
-    destruct s as [|x3 s]; try easy.
-    destruct (P x1) eqn:H1.
-  + now exists x1.
-  + destruct (P x3) eqn:H3.
-    now exists x3.
-    now exists x2.
 Qed.
 
 (** ** Implementation of a symbolic bug finder for BUG *)
@@ -834,7 +739,7 @@ Qed.
 
 (** All states of the initial list are reached *)
 Lemma mem_reachable_1:
-  forall s l,
+  forall s l, 
     In s l -> mem s (reachable l).
 Proof.
   intros s l (l1 & l2 & ->)%In_split.
@@ -886,214 +791,39 @@ Proof.
     eapply mem_reachable_2; eauto.
 Qed.
 
-Module NaiveBugFinder.
-
-Module Spec.
-Definition has_potential_bug (p : prog) (wit : bexpr) :=
-  forall env, Concr.beval env wit = true -> Concr.goes_wrong p env.
-Definition is_bug_free (p : prog) :=
-  forall env, ~(Concr.goes_wrong p env).
-End Spec.
-
 (** Finding bugs by traversing the stream of reachable symbolic states *)
 Definition find_bugs (fuel : nat) (p : prog) :=
   search fuel Symb.is_error (reachable [Symb.init p]).
 
-(** Our bug finder is correct relatively precise *)
-Theorem find_bugs_precise:
+(** All bug founds are real bugs *)
+Theorem find_bugs_found:
   forall fuel p s,
-    find_bugs fuel p = Found s -> Spec.has_potential_bug p (Symb.path s).
+    find_bugs fuel p = Found s ->
+    forall env, 
+      Concr.beval env (Symb.path s) = true ->
+      Concr.goes_wrong p env.
 Proof.
-  intros fuel p s [H1 H2]%search_found.
-  intros env Henv.
+  intros * Hfind * Heval.
+  apply search_found in Hfind as [H1 H2].
   apply reachable_sound_complete in H1 as (s1 & [[<-|[]] Hsteps]).
   eapply steps_soundness_2; eauto.
 Qed.
 
-(** Our bug finder is relatively exhaustive (1) 
-    If not bugs are found, there are nog bugs.
-*)
-Theorem find_bugs_exhaustive_1:
+(** If no bugs are found, the program does not have bugs *)
+Theorem find_bugs_not_found:
   forall fuel p,
-    find_bugs fuel p = NotFound -> Spec.is_bug_free p.
+    find_bugs fuel p = NotFound ->
+    forall env, ~Concr.goes_wrong p env.
 Proof.
-  intros fuel p Hfind.
-  intros env Henv.
-  pose proof (steps_completeness_2 _ _ Henv) as [s' [H1 [H2 H3]]].
+  intros * H * [s [Hsteps Hstuck]].
+  assert (Hwrong : Concr.goes_wrong p env) by now exists s.
+  pose proof (steps_completeness_2 _ _ Hwrong) as [s' [H1 [H2 H3]]].
   eapply search_not_found; eauto.
   split; eauto.
   apply reachable_sound_complete.
   eexists _; split; eauto.
   now left.
 Qed.
-
-(** Our bug finder is relatively exhaustive (2)
-    If there is a bug, it will eventually be found with enough fuel *)
-Theorem find_bugs_exhaustive_2:
-  forall p env,
-    Concr.goes_wrong p env ->
-    exists fuel b, find_bugs fuel p = Found b.
-Proof.
-  intros p env [s [Hs1 [Hs2 Hs3]]]%steps_completeness_2.
-  assert (Hex : exists s1, In s1 [Symb.init p] /\ Symb.steps s1 s).
-  eexists _. split; eauto. now left.
-  apply reachable_sound_complete in Hex.
-  eapply search_fuel; eauto.
-Qed.
-
-End NaiveBugFinder.
-
-Definition partial_store := list (ident * Z).
-
-Fixpoint complete_store (p : partial_store) : Concr.store :=
-  match p with
-  | [] => (fun _ => 0%Z)
-  | (x, vx)::p => Concr.update (complete_store p) x vx
-  end.
-Coercion complete_store : partial_store >-> Concr.store.
-
-Inductive solver_result :=
-  | SAT (sol : partial_store)
-  | UNSAT
-  | TIMEOUT.
-
-Module Type SOLVER.
-
-Parameter check_sat : bexpr -> solver_result.
-Axiom check_SAT :
-  forall b sol, check_sat b = SAT sol -> Concr.beval sol b = true.
-Axiom check_UNSAT :
-  forall b sol, check_sat b = UNSAT -> Concr.beval sol b = false.
-End SOLVER.
-
-Module BugFinder(Import Solver : SOLVER).
-
-Module Spec.
-
-(** Under assumptions [ass], [p] has a bug when executed with [wit] *)
-Definition has_sure_bug (p : prog) (ass : bexpr) (wit : Concr.store) :=
-  Concr.beval wit ass = true /\ Concr.goes_wrong p wit.
-
-(** Any solution to [wit] is a bug triggering input that satisfies the assumptions [ass] *)
-Definition has_potential_bug (p : prog) (ass : bexpr) (wit : bexpr) :=
-  forall env,
-    Concr.beval env wit = true ->
-    Concr.beval env ass = true /\
-    Concr.goes_wrong p env.
-
-(** [p] is free of bugs under assumptions [ass] *)
-Definition is_bug_free (p : prog) (ass : bexpr) :=
-  forall env, Concr.beval env ass = true -> ~(Concr.goes_wrong p env).
-
-End Spec.
-
-Inductive bug :=
-  | SureBug (wit : partial_store)
-  | UnsureBug (path : bexpr).
-
-Definition is_error (s : Symb.state) :=
-  if Symb.is_error s then
-    match check_sat (Symb.path s) with
-    | UNSAT => None
-    | SAT sol => Some (SureBug sol)
-    | TIMEOUT => Some (UnsureBug (Symb.path s))
-    end
-  else None.
-
-Definition find_bugs (fuel : nat) (p : prog) (ass : bexpr) :=
-  search_opt fuel is_error (reachable [(ass, fun x => Var x, p)]).
-
-Theorem find_bugs_precise_1:
-  forall fuel p ass wit,
-    find_bugs fuel p ass = Found (SureBug wit) -> Spec.has_sure_bug p ass wit.
-Proof.
-  intros fuel p ass wit Hfind.
-  apply search_opt_found in Hfind as [x [Hx1 Hx2]].
-  apply reachable_sound_complete in Hx1 as (s1 & [[<-|[]] Hsteps]).
-  unfold is_error in Hx2.
-  destruct Symb.is_error eqn:Herr; try easy.
-  destruct check_sat eqn:Hsat; try easy.
-  apply check_SAT in Hsat.
-  pose proof (Hass := steps_mono _ _ _ Hsteps Hsat).
-  injection Hx2 as <-. split; auto.
-  eexists _. split.
-  apply (steps_soundness_1 _ _ Hsteps sol Hsat).
-  destruct x as [[path senv] p']; simpl.
-  intros Hcontr; try easy.
-  eapply Oracle.next_is_error_stuck; eauto.
-Qed.
-
-Theorem find_bugs_precise_2:
-  forall fuel p ass wit,
-    find_bugs fuel p ass = Found (UnsureBug wit) -> Spec.has_potential_bug p ass wit.
-Proof.
-  intros fuel p ass wit Hfind.
-  apply search_opt_found in Hfind as [x [Hx1 Hx2]].
-  apply reachable_sound_complete in Hx1 as (s1 & [[<-|[]] Hsteps]).
-  unfold is_error in Hx2.
-  destruct Symb.is_error eqn:Herr; try easy.
-  destruct check_sat eqn:Hsat; try easy.
-  injection Hx2 as <-.
-  intros env Henv.
-  pose proof (Hass := steps_mono _ _ _ Hsteps Henv).
-  split; auto.
-  eexists _. split.
-  apply (steps_soundness_1 _ _ Hsteps env Henv).
-  destruct x as [[path senv] p']; simpl.
-  intros Hcontr; try easy.
-  eapply Oracle.next_is_error_stuck; eauto.
-Qed.
-
-Theorem find_bugs_exhaustive_1:
-  forall fuel p ass,
-    find_bugs fuel p ass = NotFound -> Spec.is_bug_free p ass.
-Proof.
-  intros fuel p ass Hfind.
-  intros env Henv [s [Hs1 Hs2]].
-  assert (Hconcr : env ⊢ (env, p) ⊆ (ass, fun x => Var x, p)) by easy.
-  pose proof (steps_completeness_1 _ _ _ _ Hconcr Hs1) as [s3 [Hs3_1 Hs3_2]].
-  eapply search_opt_not_found in Hfind; cycle 1.
-  apply reachable_sound_complete.
-  eexists _. split; eauto. now left.
-  unfold is_error in Hfind.
-  destruct s as [env' p'].
-  destruct s3 as [[path' senv'] ?].
-  destruct Hs3_2 as [H1 [-> <-]].
-  simpl in Hfind.
-  apply Oracle.next_is_error_stuck in Hs2.
-  rewrite Hs2 in Hfind.
-  destruct check_sat eqn:Hsat; try easy.
-  eapply check_UNSAT in Hsat.
-  now rewrite H1 in Hsat.
-Qed.
-
-Theorem find_bugs_exhaustive_2:
-  forall p ass env,
-    Spec.has_sure_bug p ass env ->
-    exists fuel bug, find_bugs fuel p ass = Found bug.
-Proof.
-  intros * [Hass [[env' p'] [H1 H2]]].
-  assert (Hconcr : env ⊢ (env, p) ⊆ (ass, fun x => Var x, p)) by easy.
-  pose proof (steps_completeness_1 _ _ _ _ Hconcr H1) as [[[path senv'] ?] [H3 H4]].
-  destruct H4 as [Hpath [-> <-]].
-  destruct (check_sat path) eqn:Hsat.
-  - eapply search_opt_fuel.
-    apply reachable_sound_complete.
-    eexists _. split; eauto. now left.
-    unfold is_error. simpl.
-    apply Oracle.next_is_error_stuck in H2.
-    rewrite H2. now rewrite Hsat.
-  - eapply check_UNSAT in Hsat.
-    now rewrite Hpath in Hsat.
-  - eapply search_opt_fuel.
-    apply reachable_sound_complete.
-    eexists _. split; eauto. now left.
-    unfold is_error. simpl.
-    apply Oracle.next_is_error_stuck in H2.
-    rewrite H2. now rewrite Hsat.
-Qed.
-
-End BugFinder.
 
 From Coq Require Import Extraction.
 (* Basic datatypes (pairs, lists, booleans) are extracted to OCaml's ones *)
@@ -1102,6 +832,5 @@ From Coq Require Import ExtrOcamlBasic.
 From Coq Require Import ExtrOcamlString.
 (* Integers are extracted to OCaml's Int *)
 From Coq Require Import ExtrOcamlZInt.
-From Coq Require Import ExtrOcamlNatInt.
 
-Extraction "core.ml" BugFinder NaiveBugFinder.
+Extraction "core.ml" find_bugs.
