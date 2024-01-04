@@ -161,17 +161,16 @@ let skip_dec = function
 
 let rec expand path0 env = function
 | Ite (b, p1, p2) ->
-  (((Band (path0, (Symb.beval env b))), env), p1) :: ((((Band (path0, (Bnot
-    (Symb.beval env b)))), env), p2) :: [])
+  (((Band (path0, (Symb.beval env b))), env), p1) :: ((((Band (path0, (Bnot (Symb.beval env b)))), env),
+    p2) :: [])
 | Seq (p1, p2) ->
   (match skip_dec p1 with
    | Is_skip -> ((path0, env), p2) :: []
-   | Is_not_skip ->
-     map (fun pat -> let (y, p) = pat in (y, (Seq (p, p2)))) (expand path0 env p1))
+   | Is_not_skip -> map (fun pat -> let (y, p) = pat in (y, (Seq (p, p2)))) (expand path0 env p1))
 | Asg (x, e) -> ((path0, (Symb.update env x (Symb.aeval env e))), Skip) :: []
 | Loop (b, p) ->
-  (((Band (path0, (Symb.beval env b))), env), (Seq (p, (Loop (b, p))))) :: ((((Band (path0,
-    (Bnot (Symb.beval env b)))), env), Skip) :: [])
+  (((Band (path0, (Symb.beval env b))), env), (Seq (p, (Loop (b, p))))) :: ((((Band (path0, (Bnot
+    (Symb.beval env b)))), env), Skip) :: [])
 | _ -> []
 
 (** val reachable : Symb.state list -> Symb.state stream **)
@@ -179,8 +178,7 @@ let rec expand path0 env = function
 let rec reachable = function
 | [] -> lazy Snil
 | s :: l0 ->
-  let (p0, p) = s in
-  let (path0, senv) = p0 in lazy (Scons (s, (reachable (app l0 (expand path0 senv p)))))
+  let (p0, p) = s in let (path0, senv) = p0 in lazy (Scons (s, (reachable (app l0 (expand path0 senv p)))))
 
 module NaiveBugFinder =
  struct

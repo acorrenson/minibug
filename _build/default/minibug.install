@@ -1,8 +1,0 @@
-lib: [
-  "_build/install/default/lib/minibug/META"
-  "_build/install/default/lib/minibug/dune-package"
-]
-doc: [
-  "_build/install/default/doc/minibug/LICENSE"
-  "_build/install/default/doc/minibug/README.md"
-]

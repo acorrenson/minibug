@@ -1,0 +1,5 @@
+x = 0
+loop true {
+  x = x + 1
+  assert (x < 200)
+}

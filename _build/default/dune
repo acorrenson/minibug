@@ -1,3 +1,0 @@
-(executable
- (name minibug)
- (libraries opal z3))

@@ -1,3 +1,8 @@
 (executable
  (name minibug)
  (libraries opal z3))
+
+(env
+ (dev
+  (flags
+   (:standard -w -39))))

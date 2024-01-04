@@ -19,6 +19,11 @@ let integer = many1 digit => implode % int_of_string % (fun x -> Cst x)
 let ident = (letter <~> many alpha_num) => implode
 let variable = ident => fun x -> Var (explode x)
 
+let cbool = choice [
+  token "true" >> return (Bcst true);
+  token "false" >> return (Bcst false);
+]
+
 let add = token "+" >> spaces >> return (fun x y -> Add (x, y))
 let sub = token "-" >> spaces >> return (fun x y -> Sub (x, y))
 let mul = token "*" >> spaces >> return (fun _ -> assert false)
@@ -59,7 +64,11 @@ let rec parse_bexpr input =
 and parse_bterm input =
   chainl1 parse_bfactor band input
 and parse_bfactor input =
-  (parens parse_bexpr <|> parse_cond) input
+  choice [
+    parens parse_bexpr;
+    cbool;
+    parse_cond
+  ] input
 
 let to_seq = function
   | [] -> Skip
@@ -75,7 +84,7 @@ let parse_asssume =
   token "assume" >> spaces >> parse_bexpr
 
 let parse_assert =
-  token "assert" >> spaces >> parse_bexpr => (fun x -> Ite (x, Err, Skip))
+  token "assert" >> spaces >> parse_bexpr => (fun x -> Ite (x, Skip, Err))
 
 let parse_prelude =
   many parse_asssume => big_and

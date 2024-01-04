@@ -334,6 +334,15 @@ Qed.
 Definition is_error '((_, _, prog) : state) :=
   Oracle.next_is_error prog.
 
+Definition step' (s1 s2 : state) :=
+  step s1 s2 /\ exists env, Concr.beval env (path s2) = true.
+
+Inductive steps' : state -> state -> Prop :=
+  | steps'_refl s :
+    steps' s s
+  | steps'_step s1 s2 s3 :
+    steps' s1 s2 -> step' s2 s3 -> steps' s1 s3.
+
 End Symb.
 
 (** ** Connection between concrete and symbolic semantics *)
@@ -452,6 +461,24 @@ Proof.
     eapply Symb.step_Loop_false.
     repeat split; auto; simpl.
     now rewrite Heval, <- beval_comp, H.
+Qed.
+
+(** [Symb.step'] (adding pruning) is still a complete complete abstraction of [Concr.step] *)
+Lemma step'_completeness:
+  forall env0 s1 s1_sym s2,
+    env0 ⊢ s1 ⊆ s1_sym ->
+    Concr.step s1 s2 ->
+    exists s2_sym,
+      Symb.step' s1_sym s2_sym /\ env0 ⊢ s2 ⊆ s2_sym.
+Proof.
+  intros * H1 H2.
+  pose proof (step_completeness _ _ _ _ H1 H2) as [s2_sym [H3 H4]].
+  exists s2_sym. split; auto.
+  split; auto.
+  exists env0.
+  destruct s2_sym as [[s2_path s2_mem] s2_cont]; simpl.
+  destruct s2 as [env2 p2].
+  apply H4.
 Qed.
 
 (** [Symb.steps] is a complete abstraction of [Concr.steps] *)
@@ -880,10 +907,9 @@ Proof.
     eapply Symb.step_steps; eauto.
     now apply expand_sound_complete.
   - intros [s1 [Hin Hsteps]].
-    induction Hsteps in Hin, l |-*.
+    induction Hsteps.
   + now apply mem_reachable_1.
-  + specialize (IHHsteps _ Hin).
-    eapply mem_reachable_2; eauto.
+  + eapply mem_reachable_2; eauto.
 Qed.
 
 Module NaiveBugFinder.
@@ -1095,12 +1121,49 @@ Qed.
 
 End BugFinder.
 
+Module BugFinderPruning(Solver : SOLVER).
+
+Definition expand' '((path, env, prog) : Symb.state) :=
+  List.filter (fun '(path, env, prog) =>
+    match Solver.check_sat path with
+    | UNSAT => false
+    | _ => true
+    end
+  ) (expand path env prog).
+
+Theorem expand'_sound:
+  forall s1 s2,
+    In s2 (expand' s1) -> Symb.step s1 s2.
+Proof.
+  intros [[path1 env1] p1] [[path2 env2] p2].
+  now intros [Hin%expand_sound_complete Hsat]%filter_In.
+Qed.
+
+Theorem expand'_complete:
+  forall s1 s2,
+    Symb.step' s1 s2 -> In s2 (expand' s1).
+Proof.
+  intros [[path1 env1] p1] [[path2 env2] p2].
+  intros [Hstep%expand_sound_complete [env Henv]].
+  apply filter_In. split; auto.
+  destruct Solver.check_sat eqn:Hsat; auto.
+  eapply Solver.check_UNSAT in Hsat.
+  now rewrite Hsat in Henv.
+Qed.
+
+End BugFinderPruning.
+
 From Coq Require Import Extraction.
 (* Basic datatypes (pairs, lists, booleans) are extracted to OCaml's ones *)
 From Coq Require Import ExtrOcamlBasic.
 (* Strings are extracted to OCaml's lists of chars *)
 From Coq Require Import ExtrOcamlString.
-(* Integers are extracted to OCaml's Int *)
+
+(* Integers are extracted to OCaml's Int *) 
+(*
+  Ideally, we should not do that !
+  We should use Coq integers and do conversions to Zarith
+*)
 From Coq Require Import ExtrOcamlZInt.
 From Coq Require Import ExtrOcamlNatInt.
 
